@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import FileUploadModal from '@/components/FileUploadModal'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -26,8 +27,10 @@ export default function CompanyDetailPage() {
   const [changeRequests, setChangeRequests] = useState<any[]>([])
   const [purchaseApprovals, setPurchaseApprovals] = useState<any[]>([])
   const [inKind, setInKind] = useState<any[]>([])
+  const [businessPlans, setBusinessPlans] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('budget')
+  const [showFileUpload, setShowFileUpload] = useState(false)
 
   // Budget form
   const [showBudgetForm, setShowBudgetForm] = useState(false)
@@ -39,13 +42,14 @@ export default function CompanyDetailPage() {
 
   async function load() {
     const id = Number(params.id)
-    const [c, b, i, cr, pa, ik] = await Promise.all([
+    const [c, b, i, cr, pa, ik, bp] = await Promise.all([
       supabase.from('companies').select('*').eq('id', id).single(),
       supabase.from('budget_items').select('*').eq('company_id', id).order('category'),
       supabase.from('inspections').select('*').eq('company_id', id).order('inspected_at', { ascending: false }),
       supabase.from('change_requests').select('*').eq('company_id', id).order('created_at', { ascending: false }),
       supabase.from('purchase_approvals').select('*').eq('company_id', id).order('created_at', { ascending: false }),
       supabase.from('inkind_contributions').select('*').eq('company_id', id),
+      supabase.from('business_plans').select('*').eq('company_id', id).order('uploaded_at', { ascending: false }),
     ])
     setCompany(c.data)
     setBudgetItems(b.data || [])
@@ -53,6 +57,7 @@ export default function CompanyDetailPage() {
     setChangeRequests(cr.data || [])
     setPurchaseApprovals(pa.data || [])
     setInKind(ik.data || [])
+    setBusinessPlans(bp.data || [])
     setLoading(false)
   }
 
@@ -96,6 +101,7 @@ export default function CompanyDetailPage() {
 
   const tabs = [
     { key: 'budget', label: '예산 집행' },
+    { key: 'businessplan', label: `사업계획서 (${businessPlans.length})` },
     { key: 'inspections', label: `점검 (${inspections.length})` },
     { key: 'changes', label: `변경신청 (${changeRequests.length})` },
     { key: 'purchases', label: `구매승인 (${purchaseApprovals.length})` },
@@ -103,6 +109,17 @@ export default function CompanyDetailPage() {
   ]
 
   return (
+    <>
+      <FileUploadModal
+        isOpen={showFileUpload}
+        onClose={() => setShowFileUpload(false)}
+        companyId={Number(params.id)}
+        companyName={company?.name || ''}
+        onSuccess={() => {
+          setShowFileUpload(false)
+          load()
+        }}
+      />
     <div className="space-y-4">
       <Link href="/companies" className="text-sm text-blue-600 hover:underline">&larr; 기업 목록</Link>
 
@@ -282,6 +299,59 @@ export default function CompanyDetailPage() {
           </div>
         )}
 
+        {tab === 'businessplan' && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold text-gray-900">사업계획서</h3>
+              <button onClick={() => setShowFileUpload(true)} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                + 파일 업로드
+              </button>
+            </div>
+            {businessPlans.length === 0 ? (
+              <p className="text-gray-400 text-sm py-8 text-center">업로드된 사업계획서가 없습니다</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium">파일명</th>
+                    <th className="text-right px-4 py-2 font-medium">크기</th>
+                    <th className="text-left px-4 py-2 font-medium">형식</th>
+                    <th className="text-left px-4 py-2 font-medium">업로드자</th>
+                    <th className="text-left px-4 py-2 font-medium">날짜</th>
+                    <th className="text-left px-4 py-2 font-medium">비고</th>
+                    <th className="text-center px-4 py-2 font-medium">작업</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {businessPlans.map(bp => (
+                    <tr key={bp.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 font-medium text-gray-900">{bp.file_name}</td>
+                      <td className="px-4 py-2 text-right text-gray-600">{(bp.file_size / 1024 / 1024).toFixed(2)} MB</td>
+                      <td className="px-4 py-2 text-gray-600">{bp.file_type?.toUpperCase() || '-'}</td>
+                      <td className="px-4 py-2 text-gray-600">{bp.uploaded_by}</td>
+                      <td className="px-4 py-2 text-gray-600">{bp.uploaded_at?.slice(0, 10)}</td>
+                      <td className="px-4 py-2 text-gray-600">{bp.notes || '-'}</td>
+                      <td className="px-4 py-2 text-center space-x-1">
+                        <a href={`https://ztwvlcnsqfmogmekrtki.supabase.co/storage/v1/object/public/business-plans/${bp.file_path}`} target="_blank" rel="noopener noreferrer" className="inline-block px-2 py-1 text-blue-600 hover:text-blue-700 font-medium text-xs">
+                          다운로드
+                        </a>
+                        <button onClick={async () => {
+                          if (confirm('이 파일을 삭제하시겠습니까?')) {
+                            await supabase.from('business_plans').delete().eq('id', bp.id)
+                            load()
+                          }
+                        }} className="inline-block px-2 py-1 text-red-600 hover:text-red-700 font-medium text-xs">
+                          삭제
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
         {tab === 'inkind' && (
           <div className="space-y-3">
             <h3 className="font-semibold text-gray-900">현물 대응자금</h3>
@@ -306,5 +376,6 @@ export default function CompanyDetailPage() {
         )}
       </div>
     </div>
+    </>
   )
 }

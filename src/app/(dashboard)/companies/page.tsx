@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import FileUploadModal from '@/components/FileUploadModal'
 import Link from 'next/link'
 
 const statusColors: Record<string, string> = {
@@ -22,6 +23,8 @@ export default function CompaniesPage() {
   const [filterRegion, setFilterRegion] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [showFileUpload, setShowFileUpload] = useState(false)
+  const [selectedCompanyForUpload, setSelectedCompanyForUpload] = useState<{ id: number; name: string } | null>(null)
   const [form, setForm] = useState({
     name: '', item_name: '', representative: '', business_number: '', business_type: '개인',
     address: '', open_date: '', region: '', category: '', total_budget: 0, gov_support: 0,
@@ -61,6 +64,17 @@ export default function CompaniesPage() {
   const categories = ['지역가치', '로컬푸드', '지역기반제조', '지역특화관광', '거점브랜드', '디지털문화체험', '자연친화활동']
 
   return (
+    <>
+      <FileUploadModal
+        isOpen={showFileUpload}
+        onClose={() => setShowFileUpload(false)}
+        companyId={selectedCompanyForUpload?.id || 0}
+        companyName={selectedCompanyForUpload?.name || ''}
+        onSuccess={() => {
+          setShowFileUpload(false)
+          setSelectedCompanyForUpload(null)
+        }}
+      />
     <div className="space-y-4">
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -83,7 +97,7 @@ export default function CompaniesPage() {
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <button onClick={() => setShowForm(!showForm)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">
-            + 기업 등록
+            + 신규 등록
           </button>
         </div>
       </div>
@@ -173,6 +187,7 @@ export default function CompaniesPage() {
                   <th className="text-left px-5 py-3 font-medium">분야</th>
                   <th className="text-right px-5 py-3 font-medium">정부지원금</th>
                   <th className="text-center px-5 py-3 font-medium">상태</th>
+                  <th className="text-center px-5 py-3 font-medium">사업계획서</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -187,10 +202,21 @@ export default function CompaniesPage() {
                     <td className="px-5 py-3 text-center">
                       <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusColors[c.status] || 'bg-gray-100 text-gray-800'}`}>{c.status}</span>
                     </td>
+                    <td className="px-5 py-3 text-center">
+                      <button
+                        onClick={() => {
+                          setSelectedCompanyForUpload({ id: c.id, name: c.name })
+                          setShowFileUpload(true)
+                        }}
+                        className="px-3 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 transition"
+                      >
+                        📄 업로드
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {companies.length === 0 && (
-                  <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-400">등록된 기업이 없습니다</td></tr>
+                  <tr><td colSpan={8} className="px-5 py-8 text-center text-gray-400">등록된 기업이 없습니다</td></tr>
                 )}
               </tbody>
             </table>
@@ -198,5 +224,6 @@ export default function CompaniesPage() {
         )}
       </div>
     </div>
+    </>
   )
 }
