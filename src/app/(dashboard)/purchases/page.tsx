@@ -63,6 +63,10 @@ export default function PurchasesPage() {
   const [extractedInfo, setExtractedInfo] = useState<Record<string, any>>({})
   const uploadFileRef = useRef<HTMLInputElement>(null)
 
+  // 비용 항목 상태
+  const [budgetItems, setBudgetItems] = useState<any[]>([])
+  const [selectedBudgetItemId, setSelectedBudgetItemId] = useState<number | null>(null)
+
   async function load() {
     const [p, c] = await Promise.all([
       supabase.from('purchase_approvals').select('*, companies(name)').order('created_at', { ascending: false }),
@@ -97,6 +101,8 @@ export default function PurchasesPage() {
     setUploadFile(null)
     setUploadError('')
     setExtractedInfo({})
+    setBudgetItems([])
+    setSelectedBudgetItemId(null)
     setShowModal(true)
   }
 
@@ -105,8 +111,39 @@ export default function PurchasesPage() {
     setShowModal(false)
     setFormError('')
     setUploadError('')
+    setBudgetItems([])
+    setSelectedBudgetItemId(null)
     if (fileRef.current) fileRef.current.value = ''
     if (uploadFileRef.current) uploadFileRef.current.value = ''
+  }
+
+  // 기업 선택 시 비용 항목 로드
+  async function handleCompanyChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const companyId = e.target.value
+    setForm({ ...form, company_id: companyId })
+    setBudgetItems([])
+    setSelectedBudgetItemId(null)
+
+    if (companyId) {
+      const { data } = await supabase
+        .from('budget_items')
+        .select('*')
+        .eq('company_id', Number(companyId))
+        .order('category')
+      setBudgetItems(data || [])
+    }
+  }
+
+  // 비용 항목 선택
+  function handleBudgetItemSelect(itemId: number) {
+    const item = budgetItems.find(b => b.id === itemId)
+    if (item) {
+      setSelectedBudgetItemId(itemId)
+      setForm(prev => ({
+        ...prev,
+        item_name: item.category + (item.subcategory ? " - " + item.subcategory : ""),
+      }))
+    }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -520,13 +557,44 @@ export default function PurchasesPage() {
                         기업 <span className="text-red-500">*</span>
                       </label>
                       <select value={form.company_id}
-                        onChange={e => setForm({ ...form, company_id: e.target.value })}
+                        onChange={handleCompanyChange}
                         className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required>
                         <option value="">기업을 선택하세요</option>
                         {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     </div>
+
+                    {/* 비용 항목 선택 */}
+                    {budgetItems.length > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          비용 항목 선택
+                        </label>
+                        <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3 bg-gray-50">
+                          {budgetItems.map(item => (
+                            <label key={item.id} className="flex items-start gap-2.5 cursor-pointer hover:bg-white p-2 rounded transition">
+                              <input
+                                type="radio"
+                                name="budget_item"
+                                value={item.id}
+                                checked={selectedBudgetItemId === item.id}
+                                onChange={() => handleBudgetItemSelect(item.id)}
+                                className="mt-0.5"
+                              />
+                              <div className="flex-1 text-sm">
+                                <div className="font-medium text-gray-800">{item.category}</div>
+                                {item.subcategory && <div className="text-xs text-gray-500">{item.subcategory}</div>}
+                                <div className="text-xs text-gray-600 mt-0.5">
+                                  예산: {fmt(item.planned_amount || 0)}원
+                                  {item.executed_amount > 0 && ` / 집행: ${fmt(item.executed_amount)}원`}
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* 품목명 */}
                     <div>
