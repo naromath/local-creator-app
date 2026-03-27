@@ -12,6 +12,14 @@ interface Props {
 }
 
 type Step = 'upload' | 'analyzing' | 'review'
+type ParseBusinessPlanResponse = {
+  success?: boolean
+  extractedData?: Record<string, unknown>
+  rawTextPreview?: string
+  rawTextLength?: number
+  warning?: string
+  error?: string
+}
 
 const defaultForm = {
   name: '', item_name: '', representative: '', business_number: '', business_type: '개인',
@@ -102,52 +110,42 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
     try {
       const formData = new FormData()
       formData.append('file', file)
+      const { data, error: functionError } = await supabase.functions.invoke<ParseBusinessPlanResponse>(
+        'parse-business-plan',
+        { body: formData }
+      )
 
-      const response = await fetch('/api/parse-business-plan', {
-        method: 'POST',
-        body: formData,
-      })
-
-      console.log('API 응답 상태:', response.status)
-      console.log('Content-Type:', response.headers.get('content-type'))
-
-      // HTML 오류 페이지 방어 처리
-      const contentType = response.headers.get('content-type') || ''
-      if (!contentType.includes('application/json')) {
-        console.error('API가 JSON이 아닌 응답 반환 (상태: ' + response.status + ')')
-        const textResponse = await response.text()
-        console.error('응답 내용:', textResponse.substring(0, 500))
-        
-        // JSON이 아니어도 폼 입력 단계로 이동 (직접 입력 가능)
+      if (functionError) {
+        console.error('Supabase Edge Function 오류:', functionError)
         setForm({ ...defaultForm })
         setExtractedFields([])
         setRawPreview('')
-        setError('API 응답 오류 발생. 항목을 직접 입력해주세요.')
-        setAnalysisWarning('로그인 상태를 확인하거나 잠시 후 다시 시도해주세요.')
+        setError('Supabase 분석 함수 호출에 실패했습니다. 항목을 직접 입력해주세요.')
+        setAnalysisWarning('Supabase Functions 배포 상태와 GOOGLE_GEMINI_API_KEY 시크릿을 확인해주세요.')
         setStep('review')
         return
       }
 
-      const data = await response.json()
-      console.log('파싱 결과:', { success: data.success, fieldsCount: Object.keys(data.extractedData || {}).length })
+      const responseData = data || {}
+      console.log('파싱 결과:', { success: responseData.success, fieldsCount: Object.keys(responseData.extractedData || {}).length })
 
       // 경고가 있어도 폼으로 이동 (직접 입력 가능)
-      if (data.warning) {
-        console.warn('파싱 경고:', data.warning)
-        setAnalysisWarning(data.warning)
+      if (responseData.warning) {
+        console.warn('파싱 경고:', responseData.warning)
+        setAnalysisWarning(responseData.warning)
       }
 
-      if (data.error && !data.extractedData) {
+      if (responseData.error && !responseData.extractedData) {
         // 에러이지만 폼으로 이동하여 직접 입력 가능하게
         setForm({ ...defaultForm })
         setExtractedFields([])
-        setError(data.error)
+        setError(responseData.error)
         setStep('review')
         return
       }
 
       // 추출된 데이터로 폼 채우기
-      const extracted = data.extractedData || {}
+      const extracted = responseData.extractedData || {}
       const filledFields: string[] = []
       const newForm = { ...defaultForm }
 
@@ -160,8 +158,8 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
 
       setForm(newForm)
       setExtractedFields(filledFields)
-      setRawPreview(data.rawTextPreview || '')
-      setExtractedText(data.rawTextPreview || '') // 원본 텍스트 저장
+      setRawPreview(responseData.rawTextPreview || '')
+      setExtractedText(responseData.rawTextPreview || '') // 원본 텍스트 저장
       setStep('review')
     } catch (err: any) {
       console.error('분석 오류:', err)
