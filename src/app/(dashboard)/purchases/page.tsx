@@ -54,6 +54,15 @@ export default function PurchasesPage() {
   const [formError, setFormError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // 파일 분석 상태
+  type UploadStep = 'input' | 'analyzing' | 'form'
+  const [uploadStep, setUploadStep] = useState<UploadStep>('input')
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadError, setUploadError] = useState('')
+  const [analyzing, setAnalyzing] = useState(false)
+  const [extractedInfo, setExtractedInfo] = useState<Record<string, any>>({})
+  const uploadFileRef = useRef<HTMLInputElement>(null)
+
   async function load() {
     const [p, c] = await Promise.all([
       supabase.from('purchase_approvals').select('*, companies(name)').order('created_at', { ascending: false }),
@@ -84,14 +93,20 @@ export default function PurchasesPage() {
     setForm({ company_id: '', item_name: '', amount: '', purpose: '', quote_count: '' })
     setFiles([])
     setFormError('')
+    setUploadStep('input')
+    setUploadFile(null)
+    setUploadError('')
+    setExtractedInfo({})
     setShowModal(true)
   }
 
   function closeModal() {
-    if (submitting) return
+    if (submitting || analyzing) return
     setShowModal(false)
     setFormError('')
+    setUploadError('')
     if (fileRef.current) fileRef.current.value = ''
+    if (uploadFileRef.current) uploadFileRef.current.value = ''
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -103,6 +118,105 @@ export default function PurchasesPage() {
     })
     // input 초기화 (같은 파일 다시 선택 가능하도록)
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  // 구매 요청 서 파일 선택
+  function handleUploadFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFile = e.target.files?.[0]
+    if (!selectedFile) return
+
+    if (selectedFile.size > 50 * 1024 * 1024) {
+      setUploadError('파일 크기는 50MB 이하여야 합니다')
+      return
+    }
+
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ]
+    const allowedExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
+    const extension = selectedFile.name.split('.').pop()?.toLowerCase() || ''
+    const isAllowedType = allowedTypes.includes(selectedFile.type) || allowedExtensions.includes(extension)
+
+    if (!isAllowedType) {
+      setUploadError('PDF, Word, Excel, PowerPoint 파일만 업로드 가능합니다')
+      return
+    }
+
+    setUploadFile(selectedFile)
+    setUploadError('')
+  }
+
+  // 구매 요청 서 분석
+  async function handleAnalyzeFile() {
+    if (!uploadFile) {
+      setUploadError('파일을 선택해주세요')
+      return
+    }
+
+    setAnalyzing(true)
+    setUploadStep('analyzing')
+    setUploadError('')
+
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadFile)
+
+      const response = await fetch('/api/parse-purchase-request', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        throw new Error('API 응답 형식 오류')
+      }
+
+      const data = await response.json()
+
+      if (data.error) {
+        setUploadError(data.error)
+        setAnalyzing(false)
+        return
+      }
+
+      // 추출된 정보 저장
+      setExtractedInfo(data.extractedData || {})
+
+      // 폼에 자동 채우기
+      const extracted = data.extractedData || {}
+      const newForm = { ...form }
+
+      // 기업명으로 기업 ID 찾기
+      if (extracted.company_name && companies.length > 0) {
+        const foundCompany = companies.find(c => 
+          c.name.toLowerCase().includes(extracted.company_name.toLowerCase()) ||
+          extracted.company_name.toLowerCase().includes(c.name.toLowerCase())
+        )
+        if (foundCompany) {
+          newForm.company_id = foundCompany.id.toString()
+        }
+      }
+
+      // 다른 필드 채우기
+      if (extracted.item_name) newForm.item_name = extracted.item_name
+      if (extracted.amount) newForm.amount = extracted.amount.toString()
+      if (extracted.purpose) newForm.purpose = extracted.purpose
+
+      setForm(newForm)
+      setUploadStep('form')
+    } catch (err: any) {
+      console.error('파일 분석 오류:', err)
+      setUploadError('파일 분석 중 오류가 발생했습니다. 항목을 직접 입력해주세요.')
+      setUploadStep('form')
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -315,9 +429,13 @@ export default function PurchasesPage() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">구매 요청</h2>
-                <p className="text-xs text-gray-500 mt-0.5">구매할 물품 정보와 관련 서류를 첨부해주세요</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {uploadStep === 'input' ? '구매 요청 서를 업로드해주세요' :
+                   uploadStep === 'analyzing' ? '파일 분석 중...' :
+                   '구매할 물품 정보와 관련 서류를 첨부해주세요'}
+                </p>
               </div>
-              <button onClick={closeModal} disabled={submitting}
+              <button onClick={closeModal} disabled={submitting || analyzing}
                 className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -329,138 +447,230 @@ export default function PurchasesPage() {
             <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
 
-                {/* 기업 선택 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    기업 <span className="text-red-500">*</span>
-                  </label>
-                  <select value={form.company_id}
-                    onChange={e => setForm({ ...form, company_id: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required>
-                    <option value="">기업을 선택하세요</option>
-                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
+                {/* 단계 1: 파일 업로드 */}
+                {uploadStep === 'input' && (
+                  <>
+                    <p className="text-sm text-gray-600 mb-3">
+                      구매 요청 서를 업로드하면 기업명, 품명, 금액, 목적을 자동으로 추출합니다.
+                    </p>
 
-                {/* 품목명 + 금액 */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      품목명 <span className="text-red-500">*</span>
+                    {/* 파일 업로드 드롭존 */}
+                    <label className="flex flex-col items-center justify-center w-full py-10 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition group">
+                      <svg className="w-10 h-10 text-gray-300 group-hover:text-blue-400 transition mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <span className="text-base font-medium text-gray-600 group-hover:text-blue-600">파일을 클릭하여 선택</span>
+                      <span className="text-sm text-gray-400 mt-1">PDF, Word, Excel, PowerPoint</span>
+                      <input ref={uploadFileRef} type="file" className="hidden"
+                        onChange={handleUploadFileChange}
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
                     </label>
-                    <input type="text" value={form.item_name}
-                      onChange={e => setForm({ ...form, item_name: e.target.value })}
-                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="예: 노트북, 원재료" required />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      금액 (원) <span className="text-red-500">*</span>
-                    </label>
-                    <input type="number" value={form.amount}
-                      onChange={e => setForm({ ...form, amount: e.target.value })}
-                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="0" min={0} required />
-                    {Number(form.amount) > 0 && (
-                      <p className="text-xs text-blue-600 mt-1 font-medium">{fmt(Number(form.amount))}원</p>
+
+                    {/* 선택된 파일 */}
+                    {uploadFile && (
+                      <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <FileIcon ext={uploadFile.name.split('.').pop()?.toLowerCase() || 'file'} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800 font-medium truncate">{uploadFile.name}</p>
+                          <p className="text-xs text-gray-500">{(uploadFile.size / 1024).toFixed(0)} KB</p>
+                        </div>
+                      </div>
                     )}
+
+                    {/* 오류 메시지 */}
+                    {uploadError && (
+                      <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                        <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                        {uploadError}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* 단계 2: 분석 중 */}
+                {uploadStep === 'analyzing' && (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <div className="w-12 h-12 mb-4 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                    <p className="text-sm font-medium text-gray-700 mb-1">파일을 분석 중입니다...</p>
+                    <p className="text-xs text-gray-500">잠시만 기다려주세요</p>
                   </div>
-                </div>
+                )}
 
-                {/* 구매 목적 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">구매 목적 / 용도</label>
-                  <textarea value={form.purpose}
-                    onChange={e => setForm({ ...form, purpose: e.target.value })}
-                    rows={2}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                    placeholder="구매 목적을 간략히 설명해주세요" />
-                </div>
+                {/* 단계 3: 폼 입력 */}
+                {uploadStep === 'form' && (
+                  <>
+                    {/* 추출 결과 안내 */}
+                    {Object.keys(extractedInfo).length > 0 && (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                        <p className="font-medium mb-1">✓ 파일에서 정보를 추출했습니다</p>
+                        <p>필요시 아래 정보를 수정할 수 있습니다</p>
+                      </div>
+                    )}
 
-                {/* 견적서 수 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">견적서 수</label>
-                  <input type="number" value={form.quote_count}
-                    onChange={e => setForm({ ...form, quote_count: e.target.value })}
-                    className="w-32 px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="0" min={0} />
-                </div>
-
-                {/* 서류 첨부 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">서류 첨부</label>
-                  <p className="text-xs text-gray-400 mb-2">견적서, 사양서, 카탈로그, 승인 관련 서류 등을 첨부하세요</p>
-
-                  {/* 드롭존 스타일 업로드 버튼 */}
-                  <label className="flex flex-col items-center justify-center w-full py-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition group">
-                    <svg className="w-8 h-8 text-gray-300 group-hover:text-blue-400 transition mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    <span className="text-sm text-gray-500 group-hover:text-blue-600">파일을 클릭하여 선택</span>
-                    <span className="text-xs text-gray-400 mt-0.5">PDF, Word, Excel, PowerPoint, 이미지</span>
-                    <input ref={fileRef} type="file" multiple className="hidden"
-                      onChange={handleFileChange}
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png" />
-                  </label>
-
-                  {/* 선택된 파일 목록 */}
-                  {files.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {files.map((f, i) => {
-                        const ext = f.name.split('.').pop()?.toLowerCase() || 'file'
-                        return (
-                          <div key={i} className="flex items-center gap-2.5 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
-                            <FileIcon ext={ext} />
-                            <span className="flex-1 text-sm text-gray-700 truncate">{f.name}</span>
-                            <span className="text-xs text-gray-400 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
-                            <button type="button"
-                              onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
-                              className="p-0.5 text-gray-300 hover:text-red-500 transition shrink-0">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </div>
-                        )
-                      })}
+                    {/* 기업 선택 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        기업 <span className="text-red-500">*</span>
+                      </label>
+                      <select value={form.company_id}
+                        onChange={e => setForm({ ...form, company_id: e.target.value })}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required>
+                        <option value="">기업을 선택하세요</option>
+                        {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
                     </div>
-                  )}
-                </div>
 
-                {/* 오류 메시지 */}
-                {formError && (
-                  <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    {formError}
-                  </div>
+                    {/* 품목명 + 금액 */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          품목명 <span className="text-red-500">*</span>
+                        </label>
+                        <input type="text" value={form.item_name}
+                          onChange={e => setForm({ ...form, item_name: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="예: 노트북, 원재료" required />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          금액 (원) <span className="text-red-500">*</span>
+                        </label>
+                        <input type="number" value={form.amount}
+                          onChange={e => setForm({ ...form, amount: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="0" min={0} required />
+                        {Number(form.amount) > 0 && (
+                          <p className="text-xs text-blue-600 mt-1 font-medium">{fmt(Number(form.amount))}원</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 구매 목적 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">구매 목적 / 용도</label>
+                      <textarea value={form.purpose}
+                        onChange={e => setForm({ ...form, purpose: e.target.value })}
+                        rows={2}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                        placeholder="구매 목적을 간략히 설명해주세요" />
+                    </div>
+
+                    {/* 견적서 수 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">견적서 수</label>
+                      <input type="number" value={form.quote_count}
+                        onChange={e => setForm({ ...form, quote_count: e.target.value })}
+                        className="w-32 px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="0" min={0} />
+                    </div>
+
+                    {/* 서류 첨부 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">서류 첨부</label>
+                      <p className="text-xs text-gray-400 mb-2">견적서, 사양서, 카탈로그, 승인 관련 서류 등을 첨부하세요</p>
+
+                      {/* 드롭존 스타일 업로드 버튼 */}
+                      <label className="flex flex-col items-center justify-center w-full py-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition group">
+                        <svg className="w-8 h-8 text-gray-300 group-hover:text-blue-400 transition mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        <span className="text-sm text-gray-500 group-hover:text-blue-600">파일을 클릭하여 선택</span>
+                        <span className="text-xs text-gray-400 mt-0.5">PDF, Word, Excel, PowerPoint, 이미지</span>
+                        <input ref={fileRef} type="file" multiple className="hidden"
+                          onChange={handleFileChange}
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png" />
+                      </label>
+
+                      {/* 선택된 파일 목록 */}
+                      {files.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {files.map((f, i) => {
+                            const ext = f.name.split('.').pop()?.toLowerCase() || 'file'
+                            return (
+                              <div key={i} className="flex items-center gap-2.5 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
+                                <FileIcon ext={ext} />
+                                <span className="flex-1 text-sm text-gray-700 truncate">{f.name}</span>
+                                <span className="text-xs text-gray-400 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                                <button type="button"
+                                  onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                                  className="p-0.5 text-gray-300 hover:text-red-500 transition shrink-0">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 오류 메시지 */}
+                    {formError && (
+                      <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        {formError}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
               {/* 하단 버튼 */}
               <div className="flex gap-2 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50 rounded-b-2xl">
-                <button type="submit" disabled={submitting}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60 transition">
-                  {submitting ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      제출 중...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                      </svg>
-                      구매 요청 제출
-                    </>
-                  )}
-                </button>
-                <button type="button" onClick={closeModal} disabled={submitting}
-                  className="px-5 py-2.5 bg-white text-gray-600 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition">
-                  취소
-                </button>
+                {uploadStep === 'input' && (
+                  <>
+                    <button type="button" onClick={handleAnalyzeFile} disabled={!uploadFile || analyzing}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60 transition">
+                      {analyzing ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          분석 중...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                          </svg>
+                          파일 분석
+                        </>
+                      )}
+                    </button>
+                    <button type="button" onClick={() => setUploadStep('form')}
+                      className="px-5 py-2.5 bg-white text-gray-600 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+                      직접 입력
+                    </button>
+                  </>
+                )}
+                {uploadStep === 'form' && (
+                  <>
+                    <button type="submit" disabled={submitting}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60 transition">
+                      {submitting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          제출 중...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                          </svg>
+                          구매 요청 제출
+                        </>
+                      )}
+                    </button>
+                    <button type="button" onClick={closeModal} disabled={submitting}
+                      className="px-5 py-2.5 bg-white text-gray-600 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition">
+                      취소
+                    </button>
+                  </>
+                )}
               </div>
             </form>
           </div>
