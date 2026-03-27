@@ -110,23 +110,24 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const { data, error: functionError } = await supabase.functions.invoke<ParseBusinessPlanResponse>(
-        'parse-business-plan',
-        { body: formData }
-      )
 
-      if (functionError) {
-        console.error('Supabase Edge Function 오류:', functionError)
+      const response = await fetch('/api/parse-business-plan', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        console.error('API가 JSON이 아닌 응답을 반환했습니다:', response.status)
         setForm({ ...defaultForm })
         setExtractedFields([])
         setRawPreview('')
-        setError('Supabase 분석 함수 호출에 실패했습니다. 항목을 직접 입력해주세요.')
-        setAnalysisWarning('Supabase Functions 배포 상태와 GOOGLE_GEMINI_API_KEY 시크릿을 확인해주세요.')
+        setError('분석 API 호출에 실패했습니다. 항목을 직접 입력해주세요.')
         setStep('review')
         return
       }
 
-      const responseData = data || {}
+      const responseData: ParseBusinessPlanResponse = await response.json()
       console.log('파싱 결과:', { success: responseData.success, fieldsCount: Object.keys(responseData.extractedData || {}).length })
 
       // 경고가 있어도 폼으로 이동 (직접 입력 가능)
