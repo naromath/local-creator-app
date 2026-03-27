@@ -103,20 +103,41 @@ export default function CompanyDetailPage() {
   const handleDelete = async () => {
     setDeleting(true)
     const id = Number(params.id)
-    try {
-      // 관련 데이터 순서대로 삭제 (FK 제약 고려)
-      await supabase.from('budget_items').delete().eq('company_id', id)
-      await supabase.from('inspections').delete().eq('company_id', id)
-      await supabase.from('change_requests').delete().eq('company_id', id)
-      await supabase.from('purchase_approvals').delete().eq('company_id', id)
-      await supabase.from('inkind_contributions').delete().eq('company_id', id)
-      await supabase.from('business_plans').delete().eq('company_id', id)
-      await supabase.from('companies').delete().eq('id', id)
-      router.push('/companies')
-    } catch {
+
+    // FK 의존 순서: evidences → budget_changes → budget_items
+    //               budget_changes → change_requests
+    // 그 다음 나머지 → companies 순으로 삭제
+
+    // budget_items 의 자식 테이블 먼저
+    const budgetItemIds = budgetItems.map(b => b.id)
+    if (budgetItemIds.length > 0) {
+      await supabase.from('evidences').delete().in('budget_item_id', budgetItemIds)
+      await supabase.from('budget_changes').delete().in('budget_item_id', budgetItemIds)
+    }
+    // change_requests 의 자식
+    const crIds = changeRequests.map(c => c.id)
+    if (crIds.length > 0) {
+      await supabase.from('budget_changes').delete().in('change_request_id', crIds)
+    }
+
+    const steps = [
+      supabase.from('budget_items').delete().eq('company_id', id),
+      supabase.from('inspections').delete().eq('company_id', id),
+      supabase.from('change_requests').delete().eq('company_id', id),
+      supabase.from('purchase_approvals').delete().eq('company_id', id),
+      supabase.from('inkind_contributions').delete().eq('company_id', id),
+      supabase.from('business_plans').delete().eq('company_id', id),
+    ]
+    for (const step of steps) { await step }
+
+    const { error } = await supabase.from('companies').delete().eq('id', id)
+    if (error) {
+      alert(`삭제 실패: ${error.message}`)
       setDeleting(false)
       setShowDeleteConfirm(false)
+      return
     }
+    router.push('/companies')
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>
