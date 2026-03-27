@@ -155,6 +155,7 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
       const newForm = { ...defaultForm }
 
       for (const [key, value] of Object.entries(extracted)) {
+        if (key === 'budget_items') continue // 별도 state로 처리, form에 포함 안 함
         if (value !== undefined && value !== null && value !== '' && value !== 0) {
           (newForm as any)[key] = value
           filledFields.push(key)
