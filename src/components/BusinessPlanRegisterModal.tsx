@@ -99,10 +99,31 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
         body: formData,
       })
 
+      // HTML 오류 페이지 방어 처리
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        console.error('API가 JSON이 아닌 응답 반환:', response.status, contentType)
+        // JSON이 아니어도 폼 입력 단계로 이동 (직접 입력 가능)
+        setForm({ ...defaultForm })
+        setExtractedFields([])
+        setRawPreview('')
+        setStep('review')
+        return
+      }
+
       const data = await response.json()
 
+      // 경고가 있어도 폼으로 이동 (직접 입력 가능)
+      if (data.warning) {
+        console.warn('파싱 경고:', data.warning)
+      }
+
       if (data.error && !data.extractedData) {
-        throw new Error(data.error)
+        // 에러이지만 폼으로 이동하여 직접 입력 가능하게
+        setForm({ ...defaultForm })
+        setExtractedFields([])
+        setStep('review')
+        return
       }
 
       // 추출된 데이터로 폼 채우기
@@ -122,8 +143,11 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
       setRawPreview(data.rawTextPreview || '')
       setStep('review')
     } catch (err: any) {
-      setError(err.message || '파일 분석 중 오류가 발생했습니다')
-      setStep('upload')
+      console.error('분석 오류:', err)
+      // 오류가 발생해도 폼 입력 단계로 이동 (직접 입력 가능)
+      setForm({ ...defaultForm })
+      setExtractedFields([])
+      setStep('review')
     }
   }
 
