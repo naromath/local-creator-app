@@ -194,33 +194,6 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
     }
   }
 
-  // 추출 결과를 파일로 저장
-  const handleSaveExtraction = async () => {
-    try {
-      const response = await fetch('/api/save-extraction', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: file?.name,
-          extractedText,
-          extractedData: form,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        setFormError(`저장 실패: ${data.error}`)
-        return
-      }
-
-      setFormError(`✓ 추출 결과 저장 완료!\n- JSON: ${data.files.json}\n- Markdown: ${data.files.markdown}\n- CSV: ${data.files.csv}`)
-      console.log('저장 완료:', data)
-    } catch (err: any) {
-      setFormError(`저장 중 오류: ${err.message}`)
-    }
-  }
-
   // Step 3: 최종 저장
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -318,10 +291,10 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-4">
-        {/* 헤더 */}
-        <div className="px-6 py-4 border-b border-gray-200">
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[90vh]">
+        {/* 헤더 — 고정 */}
+        <div className="px-6 py-4 border-b border-gray-200 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-gray-900">새 창업기업 등록</h2>
             <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
@@ -348,7 +321,7 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto flex-1">
           {/* Step 1: 파일 업로드 */}
           {step === 'upload' && (
             <div className="space-y-4">
@@ -690,29 +663,18 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
                 {formError && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg border border-red-200 whitespace-pre-wrap">{formError}</div>}
 
                 {/* 버튼 */}
-                <div className="flex flex-col gap-2 pt-3 border-t border-gray-200">
-                  {/* 주요 버튼 */}
-                  <div className="flex gap-2">
-                    <button type="submit" disabled={saving}
-                      className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
-                      {saving ? '저장 중...' : '저장'}
-                    </button>
-                    <button type="button" onClick={() => { setStep('upload'); setForm({ ...defaultForm }); setExtractedFields([]); setAnalysisWarning('') }}
-                      className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
-                      다시 업로드
-                    </button>
-                    <button type="button" onClick={handleClose}
-                      className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
-                      취소
-                    </button>
-                  </div>
-                  {/* 추출 결과 저장 버튼 */}
-                  <button type="button" onClick={handleSaveExtraction}
-                    className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition flex items-center justify-center gap-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    추출 결과를 파일로 저장 (JSON, Markdown, CSV)
+                <div className="flex gap-2 pt-3 border-t border-gray-200">
+                  <button type="submit" disabled={saving}
+                    className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
+                    {saving ? '저장 중...' : '저장'}
+                  </button>
+                  <button type="button" onClick={() => { setStep('upload'); setForm({ ...defaultForm }); setExtractedFields([]); setAnalysisWarning(''); setBudgetItems([]) }}
+                    className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
+                    다시 업로드
+                  </button>
+                  <button type="button" onClick={handleClose}
+                    className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
+                    취소
                   </button>
                 </div>
               </form>
