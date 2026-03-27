@@ -74,7 +74,15 @@ async function extractWithGemini(
   "agreement_end": "협약 종료일 (YYYY-MM-DD 형식)",
   "employees_current": "현재 종업원 수 (숫자만)",
   "employees_planned": "계획 고용 인원 (숫자만)",
-  "revenue_prev": "전년도 매출액 (숫자만, 원 단위)"
+  "revenue_prev": "전년도 매출액 (숫자만, 원 단위)",
+  "budget_items": [
+    {
+      "category": "비목 대분류 (인건비/재료비/외주용역비/기계장치/시설비/마케팅홍보비/지식재산권/간접비/기타 중 하나)",
+      "subcategory": "세부 항목명 (예: 대표자인건비, 원재료구입비, 홈페이지제작비 등)",
+      "description": "항목 설명 또는 용도 (없으면 빈 문자열)",
+      "planned_amount": "계획 금액 (숫자만, 원 단위)"
+    }
+  ]
 }`
 
   try {
@@ -107,6 +115,12 @@ async function extractWithGemini(
     const cleaned: Record<string, any> = {}
     for (const [key, value] of Object.entries(parsed)) {
       if (value === null || value === undefined || value === '') continue
+
+      // 배열 필드 (budget_items) — 그대로 보존
+      if (key === 'budget_items') {
+        if (Array.isArray(value) && value.length > 0) cleaned[key] = value
+        continue
+      }
 
       // 숫자 필드 처리
       if (['total_budget', 'gov_support', 'matching_fund', 'revenue_prev',
@@ -176,7 +190,15 @@ ${text.substring(0, 8000)}
   "agreement_end": "협약 종료일 (YYYY-MM-DD)",
   "employees_current": "현재 종업원 수 (숫자)",
   "employees_planned": "계획 인원 (숫자)",
-  "revenue_prev": "전년도 매출 (숫자, 원 단위)"
+  "revenue_prev": "전년도 매출 (숫자, 원 단위)",
+  "budget_items": [
+    {
+      "category": "비목 대분류 (인건비/재료비/외주용역비/기계장치/시설비/마케팅홍보비/지식재산권/간접비/기타 중 하나)",
+      "subcategory": "세부 항목명",
+      "description": "항목 설명 (없으면 빈 문자열)",
+      "planned_amount": "계획 금액 (숫자, 원 단위)"
+    }
+  ]
 }`
 
     const responseText = await generateJsonWithGemini([{ text: prompt }])
@@ -197,6 +219,10 @@ ${text.substring(0, 8000)}
     const cleaned: Record<string, any> = {}
     for (const [key, value] of Object.entries(parsed)) {
       if (value === null || value === undefined || value === '') continue
+      if (key === 'budget_items') {
+        if (Array.isArray(value) && value.length > 0) cleaned[key] = value
+        continue
+      }
       if (['total_budget', 'gov_support', 'matching_fund', 'revenue_prev',
         'employees_current', 'employees_planned'].includes(key)) {
         const num = typeof value === 'number' ? value : parseInt(String(value).replace(/[^0-9]/g, ''))

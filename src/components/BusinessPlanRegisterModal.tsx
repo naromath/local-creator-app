@@ -23,10 +23,12 @@ type ParseBusinessPlanResponse = {
 
 const defaultForm = {
   name: '', item_name: '', representative: '', business_number: '', business_type: '개인',
-  address: '', open_date: '', region: '', category: '', total_budget: 0, gov_support: 0,
+  address: '', open_date: '', region: '전남', category: '', total_budget: 0, gov_support: 0,
   matching_fund: 0, matching_type: '현금', agreement_start: '', agreement_end: '',
   employees_current: 0, employees_planned: 0, revenue_prev: 0,
 }
+
+type BudgetItemRow = { category: string; subcategory: string; description: string; planned_amount: number }
 
 function fmt(n: number) { return new Intl.NumberFormat('ko-KR').format(n) }
 
@@ -45,6 +47,7 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
   const [rawPreview, setRawPreview] = useState('')
   const [extractedText, setExtractedText] = useState('') // 원본 추출 텍스트
   const [analysisWarning, setAnalysisWarning] = useState('') // 분석 중 경고 메시지
+  const [budgetItems, setBudgetItems] = useState<BudgetItemRow[]>([]) // 비목별 예산 항목
 
   const resetAll = () => {
     setStep('upload')
@@ -58,6 +61,7 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
     setRawPreview('')
     setExtractedText('')
     setAnalysisWarning('')
+    setBudgetItems([])
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -160,7 +164,24 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
       setForm(newForm)
       setExtractedFields(filledFields)
       setRawPreview(responseData.rawTextPreview || '')
-      setExtractedText(responseData.rawTextPreview || '') // 원본 텍스트 저장
+      setExtractedText(responseData.rawTextPreview || '')
+
+      // 비목별 예산 항목 추출
+      const rawBudget = (responseData.extractedData as any)?.budget_items
+      if (Array.isArray(rawBudget) && rawBudget.length > 0) {
+        const parsedBudget: BudgetItemRow[] = rawBudget
+          .filter((item: any) => item.category && item.planned_amount > 0)
+          .map((item: any) => ({
+            category: String(item.category || '').trim(),
+            subcategory: String(item.subcategory || '').trim(),
+            description: String(item.description || '').trim(),
+            planned_amount: typeof item.planned_amount === 'number'
+              ? item.planned_amount
+              : parseInt(String(item.planned_amount).replace(/[^0-9]/g, '')) || 0,
+          }))
+        setBudgetItems(parsedBudget)
+      }
+
       setStep('review')
     } catch (err: any) {
       console.error('분석 오류:', err)
@@ -231,7 +252,25 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
         throw insertError
       }
 
-      // 2) 사업계획서 파일을 Supabase Storage에 업로드
+      // 2) 비목별 예산 항목 저장
+      if (company && budgetItems.length > 0) {
+        const { error: budgetError } = await supabase.from('budget_items').insert(
+          budgetItems.map(item => ({
+            company_id: company.id,
+            category: item.category,
+            subcategory: item.subcategory || item.category,
+            description: item.description || null,
+            planned_amount: item.planned_amount,
+            executed_amount: 0,
+          }))
+        )
+        if (budgetError) {
+          console.error('비목 항목 저장 실패:', budgetError)
+          // 비목 저장 실패해도 기업 등록은 완료 처리
+        }
+      }
+
+      // 3) 사업계획서 파일을 Supabase Storage에 업로드
       if (file && company) {
         const timestamp = Date.now()
         const filePath = `business-plans/${company.id}/${timestamp}-${file.name}`
@@ -598,6 +637,54 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
                     {form.revenue_prev > 0 && <p className="text-xs text-gray-500 mt-0.5">{fmt(form.revenue_prev)}원</p>}
                   </div>
                 </div>
+
+                {/* 비목별 예산 항목 */}
+                {budgetItems.length > 0 && (
+                  <div className="mt-4">
+                    <div className="border-t border-gray-200 pt-3 mb-2 flex items-center justify-between">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        비목별 예산 항목
+                        <span className="ml-2 text-blue-500 font-normal normal-case">자동 추출 {budgetItems.length}건</span>
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-blue-200 overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-blue-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">비목</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">세부항목</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-600">계획금액</th>
+                            <th className="px-3 py-2 text-center font-medium text-gray-600">삭제</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {budgetItems.map((item, idx) => (
+                            <tr key={idx} className="bg-white hover:bg-gray-50">
+                              <td className="px-3 py-2 text-gray-700">{item.category}</td>
+                              <td className="px-3 py-2 text-gray-600">{item.subcategory || '-'}</td>
+                              <td className="px-3 py-2 text-right text-gray-900 font-medium">{fmt(item.planned_amount)}원</td>
+                              <td className="px-3 py-2 text-center">
+                                <button type="button"
+                                  onClick={() => setBudgetItems(prev => prev.filter((_, i) => i !== idx))}
+                                  className="text-gray-400 hover:text-red-500 transition">✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-gray-50 border-t border-gray-200">
+                          <tr>
+                            <td colSpan={2} className="px-3 py-2 text-right text-xs font-semibold text-gray-600">합계</td>
+                            <td className="px-3 py-2 text-right text-xs font-bold text-gray-900">
+                              {fmt(budgetItems.reduce((s, i) => s + i.planned_amount, 0))}원
+                            </td>
+                            <td />
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">✕ 버튼으로 불필요한 항목을 제거할 수 있습니다. 저장 시 예산 탭에 자동 등록됩니다.</p>
+                  </div>
+                )}
 
                 {/* 오류 */}
                 {formError && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg border border-red-200 whitespace-pre-wrap">{formError}</div>}
