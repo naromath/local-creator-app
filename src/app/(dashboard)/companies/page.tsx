@@ -31,7 +31,7 @@ export default function CompaniesPage() {
   const [showFileUpload, setShowFileUpload] = useState(false)
   const [selectedCompanyForUpload, setSelectedCompanyForUpload] = useState<{ id: number; name: string } | null>(null)
 
-  const regions = ['서울', '부산', '대구', '인천', '광주', '대전']
+  const regions = ['서울', '부산', '대구', '인천', '광주', '대전', '전남']
   const categories = ['지역가치', '로컬푸드', '지역기반제조', '지역특화관광', '거점브랜드', '디지털문화체험', '자연친화활동']
 
   async function load() {
