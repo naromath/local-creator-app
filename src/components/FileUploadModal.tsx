@@ -71,9 +71,9 @@ export default function FileUploadModal({
 
     try {
       // Supabase Storage에 파일 업로드
-      const fileExtension = file.name.split('.').pop()
+      const fileExtension = file.name.split('.').pop()?.toLowerCase() || 'pdf'
       const timestamp = Date.now()
-      const filePath = `${companyId}/${timestamp}-${file.name}`
+      const filePath = `${companyId}/${timestamp}.${fileExtension}`
 
       const { error: uploadError } = await supabase.storage
         .from('business-plans')
