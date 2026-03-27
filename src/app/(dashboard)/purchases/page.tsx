@@ -48,7 +48,7 @@ export default function PurchasesPage() {
 
   // 모달 상태
   const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState({ company_id: '', item_name: '', amount: '', purpose: '', quote_count: '' })
+  const [form, setForm] = useState({ company_id: '', item_name: '', supply_amount: '', tax_amount: '', purpose: '', quote_count: '' })
   const [files, setFiles] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
@@ -90,7 +90,7 @@ export default function PurchasesPage() {
   const filtered = purchases.filter(p => p.status === tab)
 
   function openModal() {
-    setForm({ company_id: '', item_name: '', amount: '', purpose: '', quote_count: '' })
+    setForm({ company_id: '', item_name: '', supply_amount: '', tax_amount: '', purpose: '', quote_count: '' })
     setFiles([])
     setFormError('')
     setUploadStep('input')
@@ -205,7 +205,8 @@ export default function PurchasesPage() {
 
       // 다른 필드 채우기
       if (extracted.item_name) newForm.item_name = extracted.item_name
-      if (extracted.amount) newForm.amount = extracted.amount.toString()
+      if (extracted.supply_amount) newForm.supply_amount = extracted.supply_amount.toString()
+      if (extracted.tax_amount) newForm.tax_amount = extracted.tax_amount.toString()
       if (extracted.purpose) newForm.purpose = extracted.purpose
 
       setForm(newForm)
@@ -224,15 +225,19 @@ export default function PurchasesPage() {
     setFormError('')
     if (!form.company_id) { setFormError('기업을 선택해주세요'); return }
     if (!form.item_name.trim()) { setFormError('품목명을 입력해주세요'); return }
-    const amt = Number(form.amount)
-    if (!amt || amt <= 0) { setFormError('금액을 올바르게 입력해주세요'); return }
+    const supplyAmt = Number(form.supply_amount)
+    if (!supplyAmt || supplyAmt <= 0) { setFormError('공급가액을 올바르게 입력해주세요'); return }
+    const taxAmt = Number(form.tax_amount) || 0
+    const totalAmt = supplyAmt + taxAmt
 
     setSubmitting(true)
     try {
       const { data: pa, error } = await supabase.from('purchase_approvals').insert([{
         company_id: Number(form.company_id),
         item_name: form.item_name.trim(),
-        amount: amt,
+        amount: totalAmt,
+        supply_amount: supplyAmt,
+        tax_amount: taxAmt,
         purpose: form.purpose.trim() || null,
         quote_count: Number(form.quote_count) || 0,
         quote_attached: files.length > 0,
@@ -523,30 +528,58 @@ export default function PurchasesPage() {
                       </select>
                     </div>
 
-                    {/* 품목명 + 금액 */}
+                    {/* 품목명 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        품목명 <span className="text-red-500">*</span>
+                      </label>
+                      <input type="text" value={form.item_name}
+                        onChange={e => setForm({ ...form, item_name: e.target.value })}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="예: 노트북, 원재료" required />
+                    </div>
+
+                    {/* 공급가액 + 부가세 */}
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          품목명 <span className="text-red-500">*</span>
+                          공급가액 (원) <span className="text-red-500">*</span>
                         </label>
-                        <input type="text" value={form.item_name}
-                          onChange={e => setForm({ ...form, item_name: e.target.value })}
+                        <input type="number" value={form.supply_amount}
+                          onChange={e => setForm({ ...form, supply_amount: e.target.value })}
                           className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          placeholder="예: 노트북, 원재료" required />
+                          placeholder="0" min={0} required />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          금액 (원) <span className="text-red-500">*</span>
+                          부가세 (원)
                         </label>
-                        <input type="number" value={form.amount}
-                          onChange={e => setForm({ ...form, amount: e.target.value })}
+                        <input type="number" value={form.tax_amount}
+                          onChange={e => setForm({ ...form, tax_amount: e.target.value })}
                           className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          placeholder="0" min={0} required />
-                        {Number(form.amount) > 0 && (
-                          <p className="text-xs text-blue-600 mt-1 font-medium">{fmt(Number(form.amount))}원</p>
-                        )}
+                          placeholder="0" min={0} />
                       </div>
                     </div>
+
+                    {/* 합계 표시 */}
+                    {(Number(form.supply_amount) > 0 || Number(form.tax_amount) > 0) && (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="text-xs text-gray-600 mb-1.5 space-y-1">
+                          <div className="flex justify-between">
+                            <span>공급가액:</span>
+                            <span className="font-medium">{fmt(Number(form.supply_amount) || 0)}원</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>부가세:</span>
+                            <span className="font-medium">{fmt(Number(form.tax_amount) || 0)}원</span>
+                          </div>
+                        </div>
+                        <div className="flex justify-between pt-1.5 border-t border-blue-300 text-sm font-bold text-blue-700">
+                          <span>합계:</span>
+                          <span>{fmt(Number(form.supply_amount || 0) + Number(form.tax_amount || 0))}원</span>
+                        </div>
+                      </div>
+                    )}
 
                     {/* 구매 목적 */}
                     <div>

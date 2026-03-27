@@ -123,16 +123,43 @@ function extractPurchaseRequestInfo(text: string) {
     }
   }
 
-  // 금액 추출
-  const amountPatterns = [
-    /(?:구매\s*금액|구매\s*가격|금액|예정\s*금액|가격|단가|총\s*금액|총액|결제\s*금액|예산|구매\s*예산)\s*[:\-\s]*([\d,]+\s*(?:만\s*)?원?)/i,
-    /(?:원|가격|금액)\s*[:\-\s]*([\d,]+\s*(?:만\s*)?원?)/i,
+  // 공급가액 추출
+  const supplyPatterns = [
+    /(?:공급\s*가\s*액|공급가액|공급\s*금액)\s*[:\-\s]*([\d,]+\s*(?:만\s*)?원?)/i,
+    /공급\s*[:\-\s]*([\d,]+\s*(?:만\s*)?원?)/i,
   ]
-  for (const p of amountPatterns) {
+  for (const p of supplyPatterns) {
     const m = text.match(p)
     if (m) {
-      result.amount = extractNumber(m[1])
-      if (result.amount > 0) break
+      result.supply_amount = extractNumber(m[1])
+      if (result.supply_amount > 0) break
+    }
+  }
+
+  // 부가세 추출
+  const taxPatterns = [
+    /(?:부\s*가\s*세|부가세|세금|세액|부가\s*세금)\s*[:\-\s]*([\d,]+\s*(?:만\s*)?원?)/i,
+  ]
+  for (const p of taxPatterns) {
+    const m = text.match(p)
+    if (m) {
+      result.tax_amount = extractNumber(m[1])
+      if (result.tax_amount > 0) break
+    }
+  }
+
+  // 공급가액과 부가세가 모두 없으면 총액에서 찾기 (fallback)
+  if (!result.supply_amount && !result.tax_amount) {
+    const totalPatterns = [
+      /(?:구매\s*금액|구매\s*가격|금액|예정\s*금액|가격|단가|총\s*금액|총액|결제\s*금액|예산|구매\s*예산)\s*[:\-\s]*([\d,]+\s*(?:만\s*)?원?)/i,
+      /(?:원|가격|금액)\s*[:\-\s]*([\d,]+\s*(?:만\s*)?원?)/i,
+    ]
+    for (const p of totalPatterns) {
+      const m = text.match(p)
+      if (m) {
+        result.supply_amount = extractNumber(m[1])
+        if (result.supply_amount > 0) break
+      }
     }
   }
 
