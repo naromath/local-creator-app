@@ -46,8 +46,11 @@ export default function FileUploadModal({
       'application/vnd.ms-powerpoint',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     ]
+    const allowedExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
+    const extension = selectedFile.name.split('.').pop()?.toLowerCase() || ''
+    const isAllowedType = allowedTypes.includes(selectedFile.type) || allowedExtensions.includes(extension)
 
-    if (!allowedTypes.includes(selectedFile.type)) {
+    if (!isAllowedType) {
       setError('PDF, Word, Excel, PowerPoint 파일만 업로드 가능합니다')
       return
     }

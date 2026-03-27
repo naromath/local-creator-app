@@ -35,6 +35,8 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
   const [saving, setSaving] = useState(false)
   const [extractedFields, setExtractedFields] = useState<string[]>([]) // 자동 추출된 필드 목록
   const [rawPreview, setRawPreview] = useState('')
+  const [extractedText, setExtractedText] = useState('') // 원본 추출 텍스트
+  const [analysisWarning, setAnalysisWarning] = useState('') // 분석 중 경고 메시지
 
   const resetAll = () => {
     setStep('upload')
@@ -46,6 +48,8 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
     setSaving(false)
     setExtractedFields([])
     setRawPreview('')
+    setExtractedText('')
+    setAnalysisWarning('')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -73,14 +77,18 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
       'application/vnd.ms-powerpoint',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     ]
+    const allowedExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
+    const extension = selectedFile.name.split('.').pop()?.toLowerCase() || ''
+    const isAllowedType = allowedTypes.includes(selectedFile.type) || allowedExtensions.includes(extension)
 
-    if (!allowedTypes.includes(selectedFile.type)) {
+    if (!isAllowedType) {
       setError('PDF, Word, Excel, PowerPoint 파일만 업로드 가능합니다')
       return
     }
 
     setFile(selectedFile)
     setError('')
+    setAnalysisWarning('')
   }
 
   // Step 1 → Step 2: 파일 업로드 후 파싱
@@ -89,6 +97,7 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
 
     setStep('analyzing')
     setError('')
+    setAnalysisWarning('')
 
     try {
       const formData = new FormData()
@@ -99,29 +108,40 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
         body: formData,
       })
 
+      console.log('API 응답 상태:', response.status)
+      console.log('Content-Type:', response.headers.get('content-type'))
+
       // HTML 오류 페이지 방어 처리
       const contentType = response.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
-        console.error('API가 JSON이 아닌 응답 반환:', response.status, contentType)
+        console.error('API가 JSON이 아닌 응답 반환 (상태: ' + response.status + ')')
+        const textResponse = await response.text()
+        console.error('응답 내용:', textResponse.substring(0, 500))
+        
         // JSON이 아니어도 폼 입력 단계로 이동 (직접 입력 가능)
         setForm({ ...defaultForm })
         setExtractedFields([])
         setRawPreview('')
+        setError('API 응답 오류 발생. 항목을 직접 입력해주세요.')
+        setAnalysisWarning('로그인 상태를 확인하거나 잠시 후 다시 시도해주세요.')
         setStep('review')
         return
       }
 
       const data = await response.json()
+      console.log('파싱 결과:', { success: data.success, fieldsCount: Object.keys(data.extractedData || {}).length })
 
       // 경고가 있어도 폼으로 이동 (직접 입력 가능)
       if (data.warning) {
         console.warn('파싱 경고:', data.warning)
+        setAnalysisWarning(data.warning)
       }
 
       if (data.error && !data.extractedData) {
         // 에러이지만 폼으로 이동하여 직접 입력 가능하게
         setForm({ ...defaultForm })
         setExtractedFields([])
+        setError(data.error)
         setStep('review')
         return
       }
@@ -141,13 +161,43 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
       setForm(newForm)
       setExtractedFields(filledFields)
       setRawPreview(data.rawTextPreview || '')
+      setExtractedText(data.rawTextPreview || '') // 원본 텍스트 저장
       setStep('review')
     } catch (err: any) {
       console.error('분석 오류:', err)
       // 오류가 발생해도 폼 입력 단계로 이동 (직접 입력 가능)
       setForm({ ...defaultForm })
       setExtractedFields([])
+      setError('파일 분석 중 오류가 발생했습니다. 항목을 직접 입력해주세요.')
+      setAnalysisWarning(err?.message || '')
       setStep('review')
+    }
+  }
+
+  // 추출 결과를 파일로 저장
+  const handleSaveExtraction = async () => {
+    try {
+      const response = await fetch('/api/save-extraction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file?.name,
+          extractedText,
+          extractedData: form,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setFormError(`저장 실패: ${data.error}`)
+        return
+      }
+
+      setFormError(`✓ 추출 결과 저장 완료!\n- JSON: ${data.files.json}\n- Markdown: ${data.files.markdown}\n- CSV: ${data.files.csv}`)
+      console.log('저장 완료:', data)
+    } catch (err: any) {
+      setFormError(`저장 중 오류: ${err.message}`)
     }
   }
 
@@ -354,6 +404,12 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
                 )}
               </div>
 
+              {analysisWarning && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                  {analysisWarning}
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {/* 기업명 */}
@@ -545,21 +601,32 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
                 </div>
 
                 {/* 오류 */}
-                {formError && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg border border-red-200">{formError}</div>}
+                {formError && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg border border-red-200 whitespace-pre-wrap">{formError}</div>}
 
                 {/* 버튼 */}
-                <div className="flex gap-2 pt-3 border-t border-gray-200">
-                  <button type="submit" disabled={saving}
-                    className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
-                    {saving ? '저장 중...' : '저장'}
-                  </button>
-                  <button type="button" onClick={() => { setStep('upload'); setForm({ ...defaultForm }); setExtractedFields([]) }}
-                    className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
-                    다시 업로드
-                  </button>
-                  <button type="button" onClick={handleClose}
-                    className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
-                    취소
+                <div className="flex flex-col gap-2 pt-3 border-t border-gray-200">
+                  {/* 주요 버튼 */}
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={saving}
+                      className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
+                      {saving ? '저장 중...' : '저장'}
+                    </button>
+                    <button type="button" onClick={() => { setStep('upload'); setForm({ ...defaultForm }); setExtractedFields([]); setAnalysisWarning('') }}
+                      className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
+                      다시 업로드
+                    </button>
+                    <button type="button" onClick={handleClose}
+                      className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
+                      취소
+                    </button>
+                  </div>
+                  {/* 추출 결과 저장 버튼 */}
+                  <button type="button" onClick={handleSaveExtraction}
+                    className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    추출 결과를 파일로 저장 (JSON, Markdown, CSV)
                   </button>
                 </div>
               </form>
