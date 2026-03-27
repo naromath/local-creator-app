@@ -247,7 +247,7 @@ export default function BusinessPlanRegisterModal({ isOpen, onClose, onSuccess, 
       // 3) 사업계획서 파일을 Supabase Storage에 업로드
       if (file && company) {
         const timestamp = Date.now()
-        const filePath = `business-plans/${company.id}/${timestamp}-${file.name}`
+        const filePath = `${company.id}/${timestamp}-${file.name}`
 
         const { error: uploadError } = await supabase.storage
           .from('business-plans')
