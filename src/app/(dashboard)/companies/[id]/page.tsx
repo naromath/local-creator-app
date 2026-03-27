@@ -36,6 +36,10 @@ export default function CompanyDetailPage() {
   const [showBudgetForm, setShowBudgetForm] = useState(false)
   const [budgetForm, setBudgetForm] = useState({ category: '', subcategory: '', description: '', planned_amount: 0, executed_amount: 0 })
 
+  // Delete
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
   // Inspection form
   const [showInspForm, setShowInspForm] = useState(false)
   const [inspForm, setInspForm] = useState({ type: '수시', grade: '계속', notes: '', inspector: '담당자', inspected_at: new Date().toISOString().slice(0, 10) })
@@ -94,6 +98,25 @@ export default function CompanyDetailPage() {
     setShowInspForm(false)
     setInspForm({ type: '수시', grade: '계속', notes: '', inspector: '담당자', inspected_at: new Date().toISOString().slice(0, 10) })
     load()
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    const id = Number(params.id)
+    try {
+      // 관련 데이터 순서대로 삭제 (FK 제약 고려)
+      await supabase.from('budget_items').delete().eq('company_id', id)
+      await supabase.from('inspections').delete().eq('company_id', id)
+      await supabase.from('change_requests').delete().eq('company_id', id)
+      await supabase.from('purchase_approvals').delete().eq('company_id', id)
+      await supabase.from('inkind_contributions').delete().eq('company_id', id)
+      await supabase.from('business_plans').delete().eq('company_id', id)
+      await supabase.from('companies').delete().eq('id', id)
+      router.push('/companies')
+    } catch {
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>
@@ -375,7 +398,52 @@ export default function CompanyDetailPage() {
           </div>
         )}
       </div>
+      {/* 하단 위험 구역 */}
+      <div className="border border-red-200 rounded-xl p-4 bg-red-50">
+        <p className="text-sm font-medium text-red-700 mb-1">위험 구역</p>
+        <p className="text-xs text-red-500 mb-3">기업을 삭제하면 예산, 점검, 변경신청, 구매승인, 사업계획서 등 모든 관련 데이터가 영구적으로 삭제됩니다.</p>
+        <button
+          onClick={() => setShowDeleteConfirm(true)}
+          className="px-4 py-2 bg-white border border-red-300 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition">
+          이 기업 삭제
+        </button>
+      </div>
     </div>
+
+    {/* 삭제 확인 모달 */}
+    {showDeleteConfirm && (
+      <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900">기업 삭제 확인</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                <span className="font-semibold text-gray-800">{company?.name}</span> 기업과 관련된 모든 데이터(예산 {budgetItems.length}건, 점검 {inspections.length}건 등)가 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={deleting}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition disabled:opacity-50">
+              취소
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition disabled:opacity-50">
+              {deleting ? '삭제 중...' : '삭제 확인'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   )
 }
